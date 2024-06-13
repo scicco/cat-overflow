@@ -1,0 +1,4 @@
+googlesearch-python
+Scrapy
+PyGithub==v2.3.0
+urllib3

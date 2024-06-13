@@ -1,10 +1,10 @@
 {
-    "name": "My plugin",
+    "name": "Cat Overflow",
     "version": "0.0.1",
-    "description": "Description of my_plugin.",
-    "author_name": "Me",
-    "author_url": "https://mywebsite.me",
-    "plugin_url": "https://github.com/my_name/my_plugin",
-    "tags": "cat, template, example",
-    "thumb": "https://raw.githubusercontent.com/my_repo_path/my_plugin.png"
+    "description": "Help your fellow cat to retrieve library sources, blog and documentation for your favourite library",
+    "author_name": "scicco",
+    "author_url": "https://github.com/scicco",
+    "plugin_url": "https://github.com/scicco/cat_overflow",
+    "tags": "cat,code,programming",
+    "thumb": "https://raw.githubusercontent.com/scicco/cat_overflow/cat_overflow.png"
 }
