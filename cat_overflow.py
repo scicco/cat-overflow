@@ -5,10 +5,15 @@ import requests
 from pydantic import BaseModel
 from cat.mad_hatter.decorators import tool, plugin
 from cat.log import log
+from urllib.parse import urlparse
 
 from .gh_repo_finder import GhRepoFinder
 from .gh_easy_downloader import GhEasyDownloader
 from .gh_api_downloader import GhApiRepoDownloader
+from .my_spider import MySpider
+from .page_downloader import PageDownloader
+
+import subprocess
 
 CAT_OVERFLOW_DIR = "/catoverflow"
 
@@ -18,11 +23,21 @@ class MySettings(BaseModel):
     search_on_stack_overflow: bool = False
     use_api: bool = False
     github_api_key: str = None
+    scraping_depth: int = 3
+    scraping_max_pages: int = 100
+    use_chrome: bool = True
+    use_firefox: bool = True    
+    use_webkit: bool = False
 
 @plugin
 def settings_model():
     '''retrieve settings'''
     return MySettings
+
+@plugin
+def activated(plugin):
+    subprocess.run(["playwright", "install"]) 
+    subprocess.run(["playwright", "install-deps"]) 
 
 def raw_file_url_exists(raw_file_url):
     '''
@@ -33,6 +48,41 @@ def raw_file_url_exists(raw_file_url):
         return r.status_code == 200
     except Exception:
         return False
+
+def ingest_archive(cat, root, relpath, file, fallback = True, tool_input = '', branch_name = ''):
+    print(f"ingesting file: {os.path.join(root, file)}")
+    try:
+        cat.rabbit_hole.ingest_file(cat, os.path.join(root, file))
+    except ValueError as e:
+        if fallback:
+            raw_file_url = f"https://raw.githubusercontent.com/{tool_input}/{branch_name}/{relpath}/{file}"
+            if raw_file_url_exists(raw_file_url):
+                log.info(f"falling back to raw github url: {raw_file_url}")
+                cat.rabbit_hole.ingest_file(cat, raw_file_url)
+            else:
+                log.error(f"raw github url IS WRONG!!!: {raw_file_url}")
+        else:
+            raise e
+
+def run_ingestion(cat, folder, fallback = True, tool_input = '', branch_name = ''):
+    ingestion_threads = []
+
+    for root, dirs, files in os.walk(folder):
+        for file in files:
+            relpath = f"{root.replace(folder, '')}"[1:]
+            relpath = ''.join((relpath, '/'))
+            relpath = '/'.join(relpath.split('/')[1:])[:-1]
+            t = threading.Thread(target=ingest_archive, args=(cat, root, relpath, file, fallback, tool_input, branch_name))
+            ingestion_threads.append(t)
+
+    log.info(f"the number of ingestion threads is: {len(ingestion_threads)}")
+
+    thread_count = len(ingestion_threads)
+    for t in ingestion_threads:
+        t.start()
+        t.join()
+    
+    return thread_count
 
 @tool(examples=[
     "@getcode cheshirecat", 
@@ -110,49 +160,15 @@ def get_code(tool_input, cat):
         branch_name = extract_result['branch']
         extraction_folder = extract_result['extraction_folder']
 
-        def ingest_archive(cat, tool_input, root, relpath, file, branch_name):
-            print(f"ingesting file: {os.path.join(root, file)}")
-            try:
-                cat.rabbit_hole.ingest_file(cat, os.path.join(root, file))
-            except ValueError:
-                # if "Unsupported" in e.args[0]:
-                #     pass
-                # else:
-                #     log.warning(f"error ingesting file: {os.path.join(root, file)}")
-
-                raw_file_url = f"https://raw.githubusercontent.com/{tool_input}/{branch_name}/{relpath}/{file}"
-                if raw_file_url_exists(raw_file_url):
-                    log.info(f"falling back to raw github url: {raw_file_url}")
-                    cat.rabbit_hole.ingest_file(cat, raw_file_url)
-                else:
-                    log.error(f"raw github url IS WRONG!!!: {raw_file_url}")
-
-        ingestion_threads = []
-        for root, dirs, files in os.walk(extraction_folder):
-            for file in files:
-                #log.info(f"adding file: {file} from {os.path.join(root, file)}")
-                #relpath = os.path.relpath(extraction_folder, os.path.join(root, file))
-                relpath = f"{root.replace(extraction_folder, '')}"[1:]
-                relpath = ''.join((relpath, '/'))
-                relpath = '/'.join(relpath.split('/')[1:])[:-1]
-                #log.info(f"GINO adding extraction_folder: {extraction_folder} file: {file} root {root} from {os.path.join(root, file)} partial path: {os.path.join(root, file).replace(extraction_folder, '')} relpath: {relpath}")
-                t = threading.Thread(target=ingest_archive, args=(cat, tool_input, root, relpath, file, branch_name))
-                #t.start()
-                ingestion_threads.append(t)
-
-        log.info(f"the number of ingestion threads is: {len(ingestion_threads)}")
-
         cat.send_ws_message(content="ingesting library archive has <b>started</b>.", msg_type="chat")
-        thread_count = len(ingestion_threads)
-        for t in ingestion_threads:
-            t.start()
-            t.join()
-
+        
+        thread_count = run_ingestion(cat, output_folder, True, tool_input, branch_name)
+    
         ingestion_finished_msg = "ingesting library archive has <b>finished</b>."
 
         cat.send_ws_message(content=ingestion_finished_msg, msg_type="chat")
 
-        return f"All files have been ingested using {thread_count} threads"
+        return f"All files have been ingested using {thread_count} threads, Miao!"
 
     else:
         prefix = "I found the following libraries on github:"
@@ -176,3 +192,74 @@ def get_code(tool_input, cat):
             #log.info("prompt for llm:")
             #log.info(prompt)
             return cat.llm(prompt)
+
+
+def retrieve_contents(page_urls):     
+    output_folder = f"{CAT_OVERFLOW_DIR}/html_pages"
+    downloader = PageDownloader(output_folder=output_folder, page_urls=page_urls)
+    result = downloader.save_pages()
+    cat.send_ws_message(content=result, msg_type="chat")
+
+@tool(examples=[
+    "@getcodedoc https://cheshire-cat-ai.github.io/docs/", 
+    "@getcodedoc https://fastapi.tiangolo.com/", 
+    "@getcodedoc https://it.legacy.reactjs.org/", 
+    "@getcodedoc https://vuejs.org/"], return_direct=True)
+def get_code_documentation(tool_input, cat):
+    '''
+    Scrape an url and find all pages about a library.
+    Input must be prepended with @getcodedoc followed by the site url
+    '''
+    settings = cat.mad_hatter.get_plugin().load_settings()
+    print(settings)
+    max_pages = settings['scraping_max_pages']
+    max_depth = settings['scraping_depth']
+    use_chrome = True if 'use_chrome' not in settings else settings['use_chrome'] is True
+    use_firefox = False if 'use_firefox' not in settings else settings['use_firefox'] is True
+    use_webkit = False if 'use_webkit' not in settings else settings['use_webkit'] is True
+
+    msg = f'''
+    {'*' * 80}
+    * Cat Overfl0w plugin: get documentation: {tool_input}
+    {'*' * 80}
+    * current settings:
+    * max_pages: {str(max_pages)}
+    * max_depth: {str(max_depth)}
+    * use_chrome: {str(use_chrome)}
+    * use_firefox: {str(use_firefox)}
+    * use_webkit: {str(use_webkit)}
+    {'*' * 80}                                
+    '''
+    cat.send_ws_message(content=msg, msg_type="chat")
+
+    cat.send_ws_message(content=f"Start Scraping url: <b>{tool_input}</b>", msg_type="chat")
+    domain = urlparse(tool_input).netloc
+    output_folder = f"{CAT_OVERFLOW_DIR}/html_pages/{domain}"
+    os.makedirs(output_folder, exist_ok=True)
+    found_pages = MySpider.runme(tool_input, set(), n=max_depth, max_pages=max_pages, save_pages=False, output_folder=output_folder)
+    
+    content = "Scraping ended. These are the results:\n"
+    output = []
+    for page in found_pages:
+        output.append(page)
+    content += "\n".join(output)
+    cat.send_ws_message(content=content, msg_type="chat")
+
+    downloader = PageDownloader(output_folder=output_folder, page_urls=output, use_chrome=use_chrome, use_firefox=use_firefox, use_webkit=use_webkit)
+    #result = asyncio.run(downloader.save_pages())
+    result = downloader.save_pages()
+    log.info(result)
+
+    cat.send_ws_message(content=result, msg_type="chat")
+
+    cat.send_ws_message(content="Page Download ended", msg_type="chat")
+
+    cat.send_ws_message(content="ingesting document pages has <b>started</b>.", msg_type="chat")
+    
+    thread_count = run_ingestion(cat, output_folder, False)
+
+    ingestion_finished_msg = "ingesting document pages has <b>finished</b>."
+
+    cat.send_ws_message(content=ingestion_finished_msg, msg_type="chat")
+
+    return f"All files have been ingested using {thread_count} threads, Miao!"

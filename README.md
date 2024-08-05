@@ -70,6 +70,3 @@ will try to find a repository. If only one result is found, it start downloading
 * Github API token - your github API token ([how to create a classic token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens))
 
 ![image](images/settings.png)
-
-
-
