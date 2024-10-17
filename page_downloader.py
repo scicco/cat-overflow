@@ -6,7 +6,7 @@ import random
 class PageDownloader:
     """This class is the base class for downloading a page source using  Playwright library"""
 
-    def __init__(self, output_folder, page_urls, use_chrome = True, use_firefox = True, use_webkit = False):
+    def __init__(self, output_folder, page_urls, use_chrome = True, use_firefox = False, use_webkit = False):
         self.page_urls = page_urls
         self.output_folder = output_folder
         self.use_chrome = use_chrome
@@ -53,7 +53,7 @@ class PageDownloader:
             return "all pages where saved"
 
 if __name__ == "__main__":
-    pages = ['https://surveyjs.io/documentation']
+    pages = ['https://cheshire-cat-ai.github.io/docs/']
     output_folder = "./pages"
     downloader = PageDownloader(output_folder,  pages)
     result = downloader.save_pages()

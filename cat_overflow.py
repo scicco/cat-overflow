@@ -26,7 +26,7 @@ class MySettings(BaseModel):
     scraping_depth: int = 3
     scraping_max_pages: int = 100
     use_chrome: bool = True
-    use_firefox: bool = True    
+    use_firefox: bool = False    
     use_webkit: bool = False
 
 @plugin
