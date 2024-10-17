@@ -100,4 +100,4 @@ example:
 * Use Firefox - Setup the headless browser to use (please set only one of these as True) - default False
 * Use Webkit - Setup the headless browser to use (please set only one of these as True) - default False
 
-> TODO: add image for @getcodedoc settings
+![image](images/scraping.png)
